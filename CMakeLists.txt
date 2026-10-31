@@ -5,11 +5,20 @@ project(qwen3-asr.cpp VERSION 0.1.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(BUILD_SHARED_LIBS ON)
+# Standalone: shared ggml + shared lib + CLI/server/tests, as upstream.
+# As a subproject: static lib only, against the parent's `ggml` target.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(QWEN3_ASR_STANDALONE ON)
+    set(BUILD_SHARED_LIBS ON)
+else()
+    set(QWEN3_ASR_STANDALONE OFF)
+endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
-option(QWEN3_ASR_TEST "Enable test mode" ON)
+option(QWEN3_ASR_TEST "Enable test mode" ${QWEN3_ASR_STANDALONE})
+option(QWEN3_ASR_BUILD_TOOLS "Build qwen3-asr-cli and qwen3-asr-server" ${QWEN3_ASR_STANDALONE})
+option(QWEN3_ASR_SHARED "Build libqwen3-asr as a shared library" ${QWEN3_ASR_STANDALONE})
 option(GGML_AVX "ggml: enable AVX" ON)
 option(GGML_AVX2 "ggml: enable AVX2" ON)
 option(GGML_FMA "ggml: enable FMA" ON)
@@ -36,7 +45,13 @@ if(QWEN3_ASR_TIMING)
     add_compile_definitions(QWEN3_ASR_TIMING)
 endif()
 
-add_subdirectory(ggml)
+# A parent project that already provides the `ggml` target (one ggml per binary)
+# sets GGML_SOURCE_DIR to that tree (headers incl. ggml/src/ggml-impl.h) and
+# skips this build.
+set(GGML_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ggml" CACHE PATH "ggml source tree")
+if(NOT TARGET ggml)
+    add_subdirectory(${GGML_SOURCE_DIR} ggml)
+endif()
 file(GLOB SOURCES "src/*.*")
 list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/server.cpp")
 
@@ -47,7 +62,12 @@ if (GGML_VULKAN)
 endif ()
 
 # ==================================== Library ====================================
-add_library(qwen3-asr SHARED
+if(QWEN3_ASR_SHARED)
+    set(QWEN3_ASR_LIB_TYPE SHARED)
+else()
+    set(QWEN3_ASR_LIB_TYPE STATIC)
+endif()
+add_library(qwen3-asr ${QWEN3_ASR_LIB_TYPE}
         ${SOURCES}
 )
 
@@ -70,14 +90,15 @@ if (APPLE)
 endif ()
 
 target_include_directories(qwen3-asr PUBLIC
-        ggml/include
+        ${GGML_SOURCE_DIR}/include
         include
         src
 )
-target_include_directories(qwen3-asr PRIVATE ggml/src)
+target_include_directories(qwen3-asr PRIVATE ${GGML_SOURCE_DIR}/src)
 
 target_link_libraries(qwen3-asr PUBLIC ggml PRIVATE Threads::Threads)
 
+if (QWEN3_ASR_BUILD_TOOLS)
 # ==================================== CLI ====================================
 add_executable(qwen3-asr-cli
         cli/main.cpp
@@ -106,6 +127,7 @@ target_include_directories(qwen3-asr-server PRIVATE
 )
 
 target_link_libraries(qwen3-asr-server PRIVATE qwen3-asr ggml Threads::Threads)
+endif ()
 
 # ==================================== Test  ====================================
 if (QWEN3_ASR_TEST)
@@ -191,15 +213,19 @@ if (QWEN3_ASR_TEST)
     add_test(NAME test_tokenization COMMAND test_tokenization)
 endif ()
 
-install(TARGETS qwen3-asr qwen3-asr-cli qwen3-asr-server
+install(TARGETS qwen3-asr
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
     RUNTIME DESTINATION bin
 )
+if (QWEN3_ASR_BUILD_TOOLS)
+    install(TARGETS qwen3-asr-cli qwen3-asr-server RUNTIME DESTINATION bin)
+endif ()
 install(FILES
     include/audio_injection.h
     include/forced_aligner.h
     include/qwen3_asr.h
+    include/qwen3_asr_c.h
     src/audio_encoder.h
     src/gguf_loader.h
     src/mel_spectrogram.h

@@ -1683,13 +1683,8 @@ bool ForcedAligner::load_korean_dict(const std::string & dict_path) {
     return true;
 }
 
-std::vector<int32_t> ForcedAligner::tokenize_with_timestamps(
-    const std::string & text,
-    std::vector<std::string> & words,
-    const std::string & language) {
-
-    words.clear();
-    std::vector<int32_t> tokens;
+std::vector<std::string> ForcedAligner::split_words(const std::string & text,
+                                                    const std::string & language) const {
     const std::string normalized_language = normalize_alignment_language(language);
 
     std::vector<std::string> raw_words;
@@ -1702,6 +1697,22 @@ std::vector<int32_t> ForcedAligner::tokenize_with_timestamps(
     } else {
         raw_words = tokenize_whitespace_words(text);
     }
+    return raw_words;
+}
+
+std::vector<int32_t> ForcedAligner::tokenize_with_timestamps(
+    const std::string & text,
+    std::vector<std::string> & words,
+    const std::string & language) {
+    return tokenize_words_with_timestamps(split_words(text, language), words);
+}
+
+std::vector<int32_t> ForcedAligner::tokenize_words_with_timestamps(
+    const std::vector<std::string> & raw_words,
+    std::vector<std::string> & words) {
+
+    words.clear();
+    std::vector<int32_t> tokens;
 
     for (const auto & raw_word : raw_words) {
         words.push_back(raw_word);
@@ -1752,6 +1763,16 @@ alignment_result ForcedAligner::align(const std::string & audio_path, const std:
 
 alignment_result ForcedAligner::align(const float * samples, int n_samples, const std::string & text,
                                        const std::string & language) {
+    if (!model_loaded_) {
+        alignment_result result;
+        result.error_msg = "Model not loaded";
+        return result;
+    }
+    return align_words(samples, n_samples, split_words(text, language));
+}
+
+alignment_result ForcedAligner::align_words(const float * samples, int n_samples,
+                                             const std::vector<std::string> & raw_words) {
     alignment_result result;
     int64_t t_total_start = get_time_ms();
     
@@ -1787,7 +1808,7 @@ alignment_result ForcedAligner::align(const float * samples, int n_samples, cons
     int32_t n_audio_pads = get_feat_extract_output_lengths(mel.n_len);
     
     std::vector<std::string> words;
-    std::vector<int32_t> text_tokens = tokenize_with_timestamps(text, words, language);
+    std::vector<int32_t> text_tokens = tokenize_words_with_timestamps(raw_words, words);
     
     std::vector<int32_t> input_tokens = build_input_tokens(text_tokens, n_audio_pads);
     

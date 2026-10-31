@@ -211,6 +211,16 @@ public:
     
     alignment_result align(const float * samples, int n_samples, const std::string & text,
                            const std::string & language = "");
+
+    // Align a caller-split word list: one result entry per input word, in
+    // order, with no further splitting (the caller owns word segmentation).
+    alignment_result align_words(const float * samples, int n_samples,
+                                 const std::vector<std::string> & words);
+
+    // Word segmentation used by align(text): CJK per character, Korean by
+    // dictionary, everything else split on ASCII space, tab, CR and LF.
+    [[nodiscard]] std::vector<std::string> split_words(const std::string & text,
+                                                       const std::string & language = "") const;
     
     // Get error message
     [[nodiscard]] const std::string & get_error() const { return error_msg_; }
@@ -224,6 +234,9 @@ public:
     std::vector<int32_t> tokenize_with_timestamps(const std::string & text,
                                                    std::vector<std::string> & words,
                                                    const std::string & language = "");
+
+    std::vector<int32_t> tokenize_words_with_timestamps(const std::vector<std::string> & raw_words,
+                                                         std::vector<std::string> & words);
     
     bool load_korean_dict(const std::string & dict_path);
     
